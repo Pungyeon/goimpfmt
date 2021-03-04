@@ -1,0 +1,16 @@
+// * “other“ This is a comment
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"github.com/Pungyeon/required"
+	kafka "github.com/Vivino/go-api/services/kafka"
+	"github.com/Vivino/go-api/services/aerospike"
+  "github.com/mamamoo/hip"
+)
+
+func main() {
+    fmt.Println("something")
+}
+
