@@ -10,7 +10,7 @@ fn main() {
 
   if args.len() != 2 {
     println!("unexpected argument format, expected: ./goimpft <project_directory> <project_root_package>");
-    println!("\tsample: ./goimpft ~/projects/import-fix github.com/Pungyeon/import-fix");
+    println!("\tsample: ./goimpft ~/projects/goimpfmt github.com/Pungyeon/goimpfmt");
     return
   }
 
