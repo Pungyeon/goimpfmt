@@ -8,6 +8,12 @@ use std::cmp::Ordering;
 fn main() {
   let args : Vec<String> = std::env::args().collect();
 
+  if args.len() != 2 {
+    println!("unexpected argument format, expected: ./goimpft <project_directory> <project_root_package>");
+    println!("\tsample: ./goimpft ~/projects/import-fix github.com/Pungyeon/import-fix");
+    return
+  }
+
   let directory = &args[1];
   let project = &args[2];
 
@@ -78,25 +84,35 @@ struct GoFile {
   output: String,
 }
 
-// TODO : Refactor this it's ugly
 impl GoFile {
   fn new(file_path: &str, local: &Regex, external: &Regex) -> Option<Self> {
-    let file = std::fs::read_to_string(file_path).unwrap(); // TODO : handle
-    
+    match std::fs::read_to_string(file_path) {
+      Ok(file) => GoFile::from_file(file, local, external),
+      Err(e) => {
+        println!("error reading file {}: {}", file_path, e);
+        return None;
+      } 
+    }
+  }
+
+  fn from_file(file: String, local: &Regex, external: &Regex) -> Option<Self> {
     let lines : Vec<&str> = file.lines().collect();
     for (i, line) in lines.iter().enumerate() {
       if line.len() > 6 {
         let starts_with : String = line.chars().take(6).collect();
         if starts_with == "import" {
-          let mut imports = Imports::new(&lines[i..], local, external);
-          return Some(GoFile{
-            output: format!("{}\n{}\n{}\n", lines[..i].join("\n"), imports.output(), lines[i+imports.lines()..].join("\n")),
-          });
+          return GoFile::from_line(&lines, i, local, external);
         }
       }
-    }  
-
+    }
     None
+  }
+
+  fn from_line(lines: &Vec<&str>, i: usize, local: &Regex, external: &Regex) -> Option<Self> {
+    let mut imports = Imports::new(&lines[i..], local, external);
+    return Some(GoFile{
+      output: format!("{}\n{}\n{}\n", lines[..i].join("\n"), imports.output(), lines[i+imports.lines()..].join("\n")),
+    });
   }
 
   fn output(self) -> String {
@@ -194,15 +210,19 @@ struct Imports {
 }
 
 impl Imports {
-  fn new(input: &[&str], local: &Regex, external: &Regex) -> Self {
-    let mut imports = Imports{
+  fn default() -> Self {
+    Imports{
       builtin: Vec::new(),
       external: Vec::new(),
       project: Vec::new(),
       single: None,
       comment: None,
       empty: 0,
-    };
+    }
+  }
+
+  fn new(input: &[&str], local: &Regex, external: &Regex) -> Self {
+    let mut imports = Imports::default();
 
     if input[0] != "import (" {
       imports.single = Some(input[0].to_string());
@@ -220,19 +240,17 @@ impl Imports {
   fn parse_imports(&mut self, line: &str, local: &Regex, external: &Regex) {
     let starts_with : String = line.trim().chars().take(2).collect();
     if starts_with == "//" {
-      self.parse_comment(line);
-    } else {
-      self.parse_import(line, local, external);
+      return self.parse_comment(line);
     }
+    return self.parse_import(line, local, external);
   }
 
   fn parse_comment(&mut self, line: &str) {
     self.empty += 1;
     if self.comment == None {
-      self.comment = Some(line.to_string());
-    } else {
-      self.comment = Some(format!("{}\n{}", self.comment.clone().unwrap(), line.to_string()));
-    }
+      return self.comment = Some(line.to_string());
+    } 
+    return self.comment = Some(format!("{}\n{}", self.comment.clone().unwrap(), line.to_string()));
   }
 
   fn parse_import(&mut self, line: &str, local: &Regex, external: &Regex) {
@@ -243,18 +261,23 @@ impl Imports {
     }
 
     if external.is_match(line) {
-      if local.is_match(line) {
-        self.project.push(import);
-      } else {
-        self.external.push(import);
-      }
-    } else {
-      if line == "" {
-        self.empty += 1;
-      } else {
-        self.builtin.push(import);
-      }
+      return self.handle_external(line, import, local);
+    } 
+    return self.handle_other(line, import);
+  }
+
+  fn handle_external(&mut self, line: &str, import: Import, local: &Regex) {
+    if local.is_match(line) {
+      return self.project.push(import);
     }
+    return self.external.push(import);
+  }
+
+  fn handle_other(&mut self, line: &str, import: Import) {
+    if line == "" {
+      return self.empty += 1;
+    } 
+    return self.builtin.push(import);
   }
 
   fn output(&mut self) -> String {
@@ -298,13 +321,8 @@ impl ImportString {
   }
 
   fn push(&mut self, list: &mut Vec<Import>) -> &mut Self {
-    if list.len() == 0 {
-      return self;
-    }
-
-    if self.previous { 
-      self.out.push('\n');
-    }
+    if list.len() == 0 { return self; }
+    if self.previous { self.out.push('\n'); }
 
     list.sort();
     for imp in list { 
