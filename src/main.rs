@@ -17,24 +17,50 @@ fn main() {
   let directory = &args[1];
   let project = &args[2];
 
-  let external = Regex::new(r".+\..+/").unwrap();
-  let local = Regex::new(project).unwrap();
-  
-  Formatter::new(&local, &external).format(directory);
+
+  Formatter::new(&project).format(directory);
   println!("Done");
 }
 
-struct Formatter<'a> {
-  external: &'a Regex,
-  local: &'a Regex,
+enum PackageType {
+  EXTERNAL,
+  LOCAL,
+  OTHER,
 }
 
-impl<'a> Formatter<'a> {
-  fn new(local: &'a Regex, external: &'a Regex) -> Self {
+struct Matcher {
+  external: Regex,
+  local: Regex,
+}
+
+impl Matcher{
+  fn new(local: &str) -> Self {
+    Matcher{
+      external: Regex::new(r".+\..+/").unwrap(),
+      local: Regex::new(local).unwrap(),
+    }
+  }
+
+  fn package(&self, package: &str) -> PackageType {
+    if self.external.is_match(package) {
+      if self.local.is_match(package) {
+        return PackageType::LOCAL;
+      }
+      return PackageType::EXTERNAL
+    }
+    return PackageType::OTHER
+  }
+}
+
+struct Formatter {
+  matcher: Matcher,
+}
+
+impl Formatter {
+  fn new(project: &str) -> Self {
     Formatter{
-      external: external,
-      local: local,
-    } 
+      matcher: Matcher::new(project),
+    }
   }
 
   fn format(&self, dir_path: &str) {
@@ -71,7 +97,7 @@ impl<'a> Formatter<'a> {
   }
 
   fn format_go_file(&self, path: std::path::PathBuf) {
-    if let Some(file) = GoFile::new(path.to_str().unwrap(), self.local, self.external) {
+    if let Some(file) = GoFile::new(path.to_str().unwrap(), &self.matcher) {
       match std::fs::write(path.to_str().unwrap(), file.output()) {
         Ok(_) => (), // println!("Processed: {:?}", path),
         Err(e) => println!("Error processing {:?}: {}", path, e),
@@ -85,9 +111,9 @@ struct GoFile {
 }
 
 impl GoFile {
-  fn new(file_path: &str, local: &Regex, external: &Regex) -> Option<Self> {
+  fn new(file_path: &str, matcher: &Matcher) -> Option<Self> {
     match std::fs::read_to_string(file_path) {
-      Ok(file) => GoFile::from_file(file, local, external),
+      Ok(file) => GoFile::from_file(file, matcher),
       Err(e) => {
         println!("error reading file {}: {}", file_path, e);
         return None;
@@ -95,21 +121,21 @@ impl GoFile {
     }
   }
 
-  fn from_file(file: String, local: &Regex, external: &Regex) -> Option<Self> {
+  fn from_file(file: String, matcher: &Matcher) -> Option<Self> {
     let lines : Vec<&str> = file.lines().collect();
     for (i, line) in lines.iter().enumerate() {
       if line.len() > 6 {
         let starts_with : String = line.chars().take(6).collect();
         if starts_with == "import" {
-          return GoFile::from_line(&lines, i, local, external);
+          return GoFile::from_line(&lines, i, matcher);
         }
       }
     }
     None
   }
 
-  fn from_line(lines: &Vec<&str>, i: usize, local: &Regex, external: &Regex) -> Option<Self> {
-    let mut imports = Imports::new(&lines[i..], local, external);
+  fn from_line(lines: &Vec<&str>, i: usize, matcher: &Matcher) -> Option<Self> {
+    let mut imports = Imports::new(&lines[i..], matcher);
     return Some(GoFile{
       output: format!("{}\n{}\n{}\n", lines[..i].join("\n"), imports.output(), lines[i+imports.lines()..].join("\n")),
     });
@@ -221,7 +247,7 @@ impl Imports {
     }
   }
 
-  fn new(input: &[&str], local: &Regex, external: &Regex) -> Self {
+  fn new(input: &[&str], matcher: &Matcher) -> Self {
     let mut imports = Imports::default();
 
     if input[0] != "import (" {
@@ -231,18 +257,18 @@ impl Imports {
 
     for line in input[1..].iter() {
       if *line == ")" { break; } 
-      imports.parse_imports(line, local, external);
+      imports.parse_imports(line, matcher);
     }
 
     imports
   }
 
-  fn parse_imports(&mut self, line: &str, local: &Regex, external: &Regex) {
+  fn parse_imports(&mut self, line: &str, matcher: &Matcher) {
     let starts_with : String = line.trim().chars().take(2).collect();
     if starts_with == "//" {
       return self.parse_comment(line);
     }
-    return self.parse_import(line, local, external);
+    return self.parse_import(line, matcher);
   }
 
   fn parse_comment(&mut self, line: &str) {
@@ -253,26 +279,19 @@ impl Imports {
     return self.comment = Some(format!("{}\n{}", self.comment.clone().unwrap(), line.to_string()));
   }
 
-  fn parse_import(&mut self, line: &str, local: &Regex, external: &Regex) {
+  fn parse_import(&mut self, line: &str, matcher: &Matcher) {
     let mut import = Import::new(line);
     if self.comment != None {
       import.with_comment(self.comment.clone());
       self.comment = None
     }
 
-    if external.is_match(line) {
-      return self.handle_external(line, import, local);
-    } 
-    return self.handle_other(line, import);
-  }
-
-  fn handle_external(&mut self, line: &str, import: Import, local: &Regex) {
-    if local.is_match(line) {
-      return self.project.push(import);
+    match matcher.package(line) {
+      PackageType::OTHER => self.handle_other(line, import),
+      PackageType::LOCAL => self.project.push(import),
+      PackageType::EXTERNAL => self.external.push(import),
     }
-    return self.external.push(import);
   }
-
   fn handle_other(&mut self, line: &str, import: Import) {
     if line == "" {
       return self.empty += 1;
@@ -378,9 +397,7 @@ fn test_import_fix() {
 )";
 
   let lines : Vec<&str> = input.lines().collect();
-  let external = Regex::new(r".+\..+/").unwrap();
-  let local = Regex::new("github.com/Vivino/go-api").unwrap();
-  let mut imports = Imports::new(&lines[..], &local, &external);
+  let mut imports = Imports::new(&lines[..], &Matcher::new("github.com/Vivino/go-api"));
   let out = imports.output();
   println!("{}", out);
   assert_eq!(imports.length(), 4);
@@ -394,9 +411,7 @@ fn test_simple_import() {
 )";
 
   let lines : Vec<&str> = input.lines().collect();
-  let external = Regex::new(r".+\..+/").unwrap();
-  let local = Regex::new("github.com/Vivino/go-api").unwrap();
-  let mut imports = Imports::new(&lines[..], &local, &external);
+  let mut imports = Imports::new(&lines[..], &Matcher::new("github.com/Vivino/go-api"));
   assert_eq!(imports.length(), 1);
   assert_eq!(imports.output(), input); // ensure there is no change
 }
@@ -406,9 +421,7 @@ fn test_one_liner_import() {
   let input = r#"import "os""#;
 
   let lines : Vec<&str> = input.lines().collect();
-  let external = Regex::new(r".+\..+/").unwrap();
-  let local = Regex::new("github.com/Vivino/go-api").unwrap();
-  let mut imports = Imports::new(&lines[..], &local, &external);
+  let mut imports = Imports::new(&lines[..], &Matcher::new("github.com/Vivino/go-api"));
   assert_eq!(imports.length(), 1);
   assert_eq!(imports.output(), input); // ensure there is no change
 }
@@ -436,9 +449,7 @@ func main() {
 
 ";
 
-  let external = Regex::new(r".+\..+/").unwrap();
-  let local = Regex::new("github.com/Vivino/go-api").unwrap();
-  let file = GoFile::new("./test_files/test.go.file", &local, &external);
+  let file = GoFile::new("./test_files/test.go.file", &Matcher::new("github.com/Vivino/go-api"));
 
   let output = file.unwrap().output();
   println!("{}", &output);
