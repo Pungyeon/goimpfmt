@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 fn main() {
   let args : Vec<String> = std::env::args().collect();
 
-  if args.len() != 2 {
+  if args.len() != 3 {
     println!("unexpected argument format, expected: ./goimpft <project_directory> <project_root_package>");
     println!("\tsample: ./goimpft ~/projects/goimpfmt github.com/Pungyeon/goimpfmt");
     return
@@ -17,9 +17,7 @@ fn main() {
   let directory = &args[1];
   let project = &args[2];
 
-
   Formatter::new(&project).format(directory);
-  println!("Done");
 }
 
 enum PackageType {
