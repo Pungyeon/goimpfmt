@@ -229,10 +229,10 @@ impl std::fmt::Display for Import {
 struct Imports {
     builtin: Vec<Import>,
     external: Vec<Import>,
-    project: Vec<Import>,
+    local: Vec<Import>,
     single: Option<String>,
     comment: Option<String>,
-    empty: usize,
+    empty_lines: usize,
 }
 
 impl Imports {
@@ -240,10 +240,10 @@ impl Imports {
     Imports{
       builtin: Vec::new(),
       external: Vec::new(),
-      project: Vec::new(),
+      local: Vec::new(),
       single: None,
       comment: None,
-      empty: 0,
+      empty_lines: 0,
     }
   }
 
@@ -272,7 +272,7 @@ impl Imports {
   }
 
   fn parse_comment(&mut self, line: &str) {
-    self.empty += 1;
+    self.empty_lines += 1;
     if self.comment == None {
       return self.comment = Some(line.to_string());
     } 
@@ -288,13 +288,13 @@ impl Imports {
 
     match matcher.package(line) {
       PackageType::OTHER => self.handle_other(line, import),
-      PackageType::LOCAL => self.project.push(import),
+      PackageType::LOCAL => self.local.push(import),
       PackageType::EXTERNAL => self.external.push(import),
     }
   }
   fn handle_other(&mut self, line: &str, import: Import) {
     if line == "" {
-      return self.empty += 1;
+      return self.empty_lines += 1;
     } 
     return self.builtin.push(import);
   }
@@ -306,7 +306,7 @@ impl Imports {
 
     ImportString::new("import (\n".to_string())
       .push(self.builtin.as_mut())
-      .push(self.project.as_mut())
+      .push(self.local.as_mut())
       .push(self.external.as_mut())
       .build()
   }
@@ -315,14 +315,14 @@ impl Imports {
     if self.single != None {
       return 1;
     }
-    self.length() + self.empty + IMPORT_WRAP_LEN
+    self.length() + self.empty_lines + IMPORT_WRAP_LEN
   }
 
   fn length(&self) -> usize {
     if self.single != None {
       return 1;
     }
-    self.builtin.len() + self.external.len() + self.project.len()
+    self.builtin.len() + self.external.len() + self.local.len()
   }
 }
 
