@@ -6,18 +6,66 @@ use regex::Regex;
 use std::cmp::Ordering;
 
 fn main() {
-  let args : Vec<String> = std::env::args().collect();
-
-  if args.len() != 3 {
-    println!("unexpected argument format, expected: ./goimpft <project_directory> <project_root_package>");
-    println!("\tsample: ./goimpft ~/projects/goimpfmt github.com/Pungyeon/goimpfmt");
-    return
+  match Args::parse(std::env::args().collect()) {
+    Ok(args) => {
+      let formatter = Formatter::new(&args.project);
+      if args.file_mode {
+        for file in args.paths {
+          formatter.format_file(std::path::PathBuf::from(file));
+        }
+      } else {
+        for dir in args.paths {
+          formatter.format(&dir);
+        }
+      }
+    },
+    Err(msg) => {
+      println!("ERROR: {}", msg);
+      println!();
+      println!("USAGE: ./goimpft <project_import> (-f) <target_path(s)>");
+      println!("\t-f (optional): use file_mode, in which you are feeding files, rather than directories");
+      println!();
+      println!("\tsample: ./goimpft github.com/Pungyeon/goimpfmt .");
+      println!("\tsample: ./goimpft github.com/Pungyeon/goimpfmt -f main.go");
+      println!("\tsample: ./goimpft github.com/Pungyeon/goimpfmt -f main.go main_test.go");
+    }
   }
+}
 
-  let directory = &args[1];
-  let project = &args[2];
+struct Args {
+  file_mode: bool,
+  paths: Vec<String>,
+  project: String,
+}
 
-  Formatter::new(&project).format(directory);
+impl Args {
+  fn default() -> Self {
+    Args{
+      file_mode: false,
+      paths: Vec::new(),
+      project: "".to_string(),
+    }
+  }
+  fn parse(args: Vec<String>) -> Result<Self, String> {
+    let mut a = Args::default();
+
+    if args.len() < 3 {
+      return Err(format!("not enough arguments, expected 3 or more: {:?}", args));
+    }
+    a.project = args[1].clone();
+
+    if &args[2] == "-f" {
+      a.file_mode = true;
+      if args.len() < 4 {
+        return Err(format!("not enough arguments with -f specified, expected 4 or more: {:?}", args));
+      }
+      a.paths = args[3..].to_vec();
+    } else {
+      a.paths = args[2..].to_vec();
+    }
+
+    Ok(a)
+  }
 }
 
 enum PackageType {
