@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 fn main() {
   match Args::parse(std::env::args().collect()) {
     Ok(args) => {
-      let formatter = Formatter::new(&args.project);
+      let mut formatter = Formatter::new(&args.project);
       if args.file_mode {
         for file in args.paths {
           formatter.format_file(std::path::PathBuf::from(file));
@@ -17,6 +17,9 @@ fn main() {
         for dir in args.paths {
           formatter.format(&dir);
         }
+      }
+      if formatter.found_difference {
+        std::process::exit(1);
       }
     },
     Err(msg) => {
@@ -31,6 +34,7 @@ fn main() {
     }
   }
 }
+
 
 struct Args {
   file_mode: bool,
@@ -99,24 +103,26 @@ impl Matcher{
 }
 
 struct Formatter {
+  found_difference: bool,
   matcher: Matcher,
 }
 
 impl Formatter {
   fn new(project: &str) -> Self {
     Formatter{
+      found_difference: false,
       matcher: Matcher::new(project),
     }
   }
 
-  fn format(&self, dir_path: &str) {
+  fn format(&mut self, dir_path: &str) {
     match std::fs::read_dir(dir_path) {
       Ok(entries) => self.format_entries(entries),
       Err(err) => println!("{}", err),
     }
   }
 
-  fn format_entries(&self, entries: std::fs::ReadDir) {
+  fn format_entries(&mut self, entries: std::fs::ReadDir) {
     for entry in entries {
       match entry {
         Ok(e) => self.format_entry(e),
@@ -125,7 +131,7 @@ impl Formatter {
     }
   }
 
-  fn format_entry(&self, entry: std::fs::DirEntry) {
+  fn format_entry(&mut self, entry: std::fs::DirEntry) {
     let path = entry.path();
     if path.is_dir() {
       return self.format(path.to_str().unwrap());
@@ -133,7 +139,7 @@ impl Formatter {
     return self.format_file(path);
   }
 
-  fn format_file(&self, path: std::path::PathBuf) {
+  fn format_file(&mut self, path: std::path::PathBuf) {
     if let Some(ext) = path.extension() {
       if ext != "go" {
         return ();
@@ -142,18 +148,26 @@ impl Formatter {
     }
   }
 
-  fn format_go_file(&self, path: std::path::PathBuf) {
+  fn format_go_file(&mut self, path: std::path::PathBuf) {
     if let Some(file) = GoFile::new(path.to_str().unwrap(), &self.matcher) {
-      match std::fs::write(path.to_str().unwrap(), file.output()) {
-        Ok(_) => (), // println!("Processed: {:?}", path),
-        Err(e) => println!("Error processing {:?}: {}", path, e),
+      // TODO diff logic here
+      if file.diff.distance > 0 {
+        self.found_difference = true;
+        // TODO if quiet then don't print
+        print_diff(path.to_str().unwrap(), file.diff.diffs);
       }
+      // TODO if no-fix then don't write
+      // match std::fs::write(path.to_str().unwrap(), file.output()) {
+      //   Ok(_) => (), // println!("Processed: {:?}", path),
+      //   Err(e) => println!("Error processing {:?}: {}", path, e),
+      // }
     }
   }
 }
 
 struct GoFile {
   output: String,
+  diff: Changeset,
 }
 
 impl GoFile {
@@ -182,7 +196,9 @@ impl GoFile {
 
   fn from_line(lines: &Vec<&str>, i: usize, matcher: &Matcher) -> Option<Self> {
     let mut imports = Imports::new(&lines[i..], matcher);
+    let output = imports.output();
     return Some(GoFile{
+      diff: Changeset::new(&lines[i..imports.lines()+i].join("\n"), &output, "\n"),
       output: format!("{}\n{}\n{}\n", lines[..i].join("\n"), imports.output(), lines[i+imports.lines()..].join("\n")),
     });
   }
@@ -281,6 +297,10 @@ struct Imports {
     empty_lines: usize,
 }
 
+struct Diff {
+  changes: usize,
+}
+
 impl Imports {
   fn default() -> Self {
     Imports{
@@ -302,11 +322,15 @@ impl Imports {
     }
 
     for line in input[1..].iter() {
-      if *line == ")" { break; } 
+      if *line == ")" { break; }
       imports.parse_imports(line, matcher);
     }
 
     imports
+  }
+
+  fn diff(old: &[&str], new: &str) -> Diff {
+    Diff{ changes: 0 }
   }
 
   fn parse_imports(&mut self, line: &str, matcher: &Matcher) {
@@ -406,6 +430,56 @@ impl ImportString {
 
 const IMPORT_WRAP_LEN : usize = 2;
 
+fn print_diff(path: &str, diffs: Vec<Difference>) {
+  let mut t = term::stdout().unwrap();
+  writeln!(t, "diff --goimpfmt {}", path);
+  t.fg(term::color::CYAN);
+  for i in 0..diffs.len() {
+    match diffs[i] {
+      Difference::Same(ref x) => {
+        t.reset().unwrap();
+        writeln!(t, " {}", x);
+      }
+      Difference::Add(ref x) => {
+        t.fg(term::color::GREEN).unwrap();
+        writeln!(t, "+{}", x);
+      }
+      Difference::Rem(ref x) => {
+        t.fg(term::color::RED).unwrap();
+        writeln!(t, "-{}", x);
+      }
+    }
+  }
+  t.reset().unwrap();
+  t.flush().unwrap();
+}
+
+use difference::{Difference, Changeset};
+extern crate term;
+
+#[test]
+fn test_diff() {
+  let left = "a
+b
+c
+d
+e
+f
+g";
+
+  let right = "a
+b
+c
+d
+f
+g
+e";
+
+  let cs = Changeset::new(left, right, "\n");
+  print_diff("test.go", cs.diffs);
+  assert_eq!(cs.distance, 2);
+}
+
 #[test]
 fn test_import() {
   let input = r#"json "github.com/Pungyeon/required/pkg/json""#;
@@ -446,6 +520,9 @@ fn test_import_fix() {
   let mut imports = Imports::new(&lines[..], &Matcher::new("github.com/Vivino/go-api"));
   let out = imports.output();
   println!("{}", out);
+
+  let diff = Imports::diff(&lines[..], &out);
+  assert_eq!(diff.changes, 4);
   assert_eq!(imports.length(), 4);
   assert_eq!(out, expected);
 }
@@ -458,6 +535,7 @@ fn test_simple_import() {
 
   let lines : Vec<&str> = input.lines().collect();
   let mut imports = Imports::new(&lines[..], &Matcher::new("github.com/Vivino/go-api"));
+
   assert_eq!(imports.length(), 1);
   assert_eq!(imports.output(), input); // ensure there is no change
 }
@@ -497,7 +575,9 @@ func main() {
 
   let file = GoFile::new("./test_files/test.go.file", &Matcher::new("github.com/Vivino/go-api"));
 
-  let output = file.unwrap().output();
+  let go_file = file.unwrap();
+  assert_eq!(go_file.diff.distance, 2);
+  let output = &go_file.output();
   println!("{}", &output);
   assert_eq!(output, expected); 
 }

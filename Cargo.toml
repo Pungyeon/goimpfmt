@@ -8,3 +8,5 @@ edition = "2018"
 
 [dependencies]
 regex = "1"
+difference = "2.0"
+term = "*"
