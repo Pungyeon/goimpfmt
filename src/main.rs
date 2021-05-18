@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 
 fn main() {
   let matches = App::new("Go Import Format")
-      .version("0.2")
+      .version("0.3.0")
       .author("Lasse Martin Jakobsen (Pungyeon)")
       .about("Formats Go imports enforcing the Vivino style guide, grouping and separating built-in, internal and external library imports")
       .arg(Arg::new("project")
