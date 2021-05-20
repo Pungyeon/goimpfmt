@@ -451,11 +451,26 @@ fn print_diff(path: &str, diffs: &[Difference]) {
   }
 }
 
-fn print_diff_color(t: &mut Box<term::StdoutTerminal>, path: &str, diffs: &[Difference]) -> std::result::Result<(), term::Error> {
-  writeln!(t, "diff --goimpfmt {}", path)?;
+fn get_diff(diffs: &[Difference]) -> (usize, usize) {
+  let (mut add, mut rem) = (0, 0);
   for diff in diffs {
     match diff {
-      Difference::Same(ref x) => {
+      Difference::Same(_) => (),
+      Difference::Add(_) => add += 1,
+      Difference::Rem(_) => rem += 1,
+    }
+  }
+  (add, rem)
+}
+
+fn print_diff_color(t: &mut Box<term::StdoutTerminal>, path: &str, diffs: &[Difference]) -> std::result::Result<(), term::Error> {
+  writeln!(t, "diff --goimpfmt {}", path)?;
+  let (add, rem) = get_diff(diffs);
+  t.fg(term::color::CYAN)?;
+  writeln!(t, "@@ +{}, -{} @@", add, rem)?;
+
+  for diff in diffs {
+    match diff { Difference::Same(ref x) => {
         t.reset()?;
         writeln!(t, " {}", x)?;
       }
@@ -475,6 +490,8 @@ fn print_diff_color(t: &mut Box<term::StdoutTerminal>, path: &str, diffs: &[Diff
 
 fn print_diff_plain(path: &str, diffs: &[Difference]) {
   println!("diff --goimpfmt {}", path);
+  let (add, rem) = get_diff(diffs);
+  println!("@@ +{}, -{} @@", add, rem);
   for diff in diffs {
     match diff {
       Difference::Same(ref x) => {
