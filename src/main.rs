@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
 extern crate regex;
+extern crate term;
 
+use difference::{Difference, Changeset};
 use clap::{Arg, App};
 use regex::Regex;
 use std::cmp::Ordering;
@@ -434,31 +436,59 @@ impl ImportString {
 const IMPORT_WRAP_LEN : usize = 2;
 
 fn print_diff(path: &str, diffs: &[Difference]) {
-  let mut t = term::stdout().unwrap();
-  writeln!(t, "diff --goimpfmt {}", path);
-  t.fg(term::color::CYAN);
+  match term::stdout() {
+    Some(mut t) => {
+      match print_diff_color(&mut t, path, diffs) {
+        Ok(()) => (),
+        Err(e) => {
+          println!("issue printing diff in color terminal: {}", e);
+          println!("falling back to plain terminal");
+          print_diff_plain(path, diffs);
+        }
+      }
+    },
+    None => print_diff_plain(path, diffs),
+  }
+}
+
+fn print_diff_color(t: &mut Box<term::StdoutTerminal>, path: &str, diffs: &[Difference]) -> std::result::Result<(), term::Error> {
+  writeln!(t, "diff --goimpfmt {}", path)?;
   for diff in diffs {
     match diff {
       Difference::Same(ref x) => {
-        t.reset().unwrap();
-        writeln!(t, " {}", x);
+        t.reset()?;
+        writeln!(t, " {}", x)?;
       }
       Difference::Add(ref x) => {
-        t.fg(term::color::GREEN).unwrap();
-        writeln!(t, "+{}", x);
+        t.fg(term::color::GREEN)?;
+        writeln!(t, "+{}", x)?;
       }
       Difference::Rem(ref x) => {
-        t.fg(term::color::RED).unwrap();
-        writeln!(t, "-{}", x);
+        t.fg(term::color::RED)?;
+        writeln!(t, "-{}", x)?;
       }
     }
   }
-  t.reset().unwrap();
-  t.flush().unwrap();
+  t.reset()?;
+  Ok(t.flush()?)
 }
 
-use difference::{Difference, Changeset};
-extern crate term;
+fn print_diff_plain(path: &str, diffs: &[Difference]) {
+  println!("diff --goimpfmt {}", path);
+  for diff in diffs {
+    match diff {
+      Difference::Same(ref x) => {
+        println!(" {}", x);
+      }
+      Difference::Add(ref x) => {
+        println!("+{}", x);
+      }
+      Difference::Rem(ref x) => {
+        println!("-{}", x);
+      }
+    }
+  }
+}
 
 #[test]
 fn test_diff() {
