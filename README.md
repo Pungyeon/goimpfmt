@@ -23,13 +23,13 @@ To run the tool, use the following cmd line format (commands in parenthesis are 
 
 Use the `-h` flag to output the following information:
 ```bash 
-Go Import Format 0.3.0
+Go Import Format 0.3.1
 Lasse Martin Jakobsen (Pungyeon)
 Formats Go imports enforcing the Vivino style guide, grouping and separating built-in, internal and
 external library imports
 
 USAGE:
-    import-fix [FLAGS] --project <PROJECT IMPORT> --input <FILE/DIRECTORY>...
+    import-fix [FLAGS] [OPTIONS] --project <PROJECT IMPORT> --input <FILE/DIRECTORY>...
 
 FLAGS:
     -h, --help       Prints help information
@@ -39,10 +39,11 @@ FLAGS:
                      directories
 
 OPTIONS:
-    -i, --input <FILE/DIRECTORY>...    specifies the directories and/or files to format. Directories
-                                       are formatted recursively.
-    -p, --project <PROJECT IMPORT>     determines the 'internal' import prefix
-
+    -x, --ignore <FILE/DIRECTORY>...    specifies directories and/or files in which to ignore. This
+                                        is meant to use with vendor modules and the like.
+    -i, --input <FILE/DIRECTORY>...     specifies the directories and/or files to format.
+                                        Directories are formatted recursively.
+    -p, --project <PROJECT IMPORT>      determines the 'internal' import prefix
 ```
 
 > NOTE : Files without a `.go` extension are ignored by the formatter.

@@ -3,6 +3,7 @@
 extern crate regex;
 extern crate term;
 
+use std::collections::{HashSet};
 use difference::{Difference, Changeset};
 use clap::{Arg, App};
 use regex::Regex;
@@ -10,7 +11,7 @@ use std::cmp::Ordering;
 
 fn main() {
   let matches = App::new("Go Import Format")
-      .version("0.3.0")
+      .version("0.3.1")
       .author("Lasse Martin Jakobsen (Pungyeon)")
       .about("Formats Go imports enforcing the Vivino style guide, grouping and separating built-in, internal and external library imports")
       .arg(Arg::new("project")
@@ -36,6 +37,13 @@ fn main() {
           .short('w')
           .long("write")
           .about("specifies whether to write any eventual diff to the formatted file / directories"))
+      .arg(Arg::new("ignore")
+          .short('x')
+          .long("ignore")
+          .value_name("FILE/DIRECTORY")
+          .about("specifies directories and/or files in which to ignore. This is meant to use with vendor modules and the like.")
+          .takes_value(true)
+          .multiple(true))
       .get_matches();
 
 
@@ -53,8 +61,18 @@ fn main() {
         },
       }
     }
+
+    let mut ignored = HashSet::new();
+    if let Some(ignored_paths) = matches.values_of("ignore") {
+      for path in ignored_paths {
+        ignored.insert(path);
+      }
+    }
+
+
     let mut formatter = Formatter::new(
       matches.value_of("project").unwrap(),
+      ignored,
       matches.is_present("quiet"),
       matches.is_present("write"));
     for metadata in mds {
@@ -102,18 +120,20 @@ impl Matcher{
   }
 }
 
-struct Formatter {
+struct Formatter<'a> {
   matcher: Matcher,
   found_difference: bool,
+  ignored: HashSet<&'a str>,
   quiet: bool,
   write: bool,
 }
 
-impl Formatter {
-  fn new(project: &str, quiet: bool, write: bool) -> Self {
+impl<'a> Formatter<'a> {
+  fn new(project: &str, ignored: HashSet<&'a str>, quiet: bool, write: bool) -> Self {
     Formatter{
       matcher: Matcher::new(project),
       found_difference: false,
+      ignored,
       write,
       quiet,
     }
@@ -136,6 +156,9 @@ impl Formatter {
   }
 
   fn format_md(&mut self, path: &str, md: std::fs::Metadata) {
+    if self.ignore(path) {
+      return;
+    }
     if md.is_dir() {
       return self.format(path);
     }
@@ -144,13 +167,23 @@ impl Formatter {
 
   fn format_entry(&mut self, entry: std::fs::DirEntry) {
     let path = entry.path();
+    if self.ignore(path.to_str().unwrap()) {
+      return;
+    }
     if path.is_dir() {
       return self.format(path.to_str().unwrap());
     }
     self.format_file(path);
   }
 
-  fn format_file(&mut self, path: std::path::PathBuf) {
+  fn ignore(&self, path: &str) -> bool {
+    match self.ignored.get(path) {
+      Some(_) => true,
+      None => false,
+    }
+  }
+
+fn format_file(&mut self, path: std::path::PathBuf) {
     if let Some(ext) = path.extension() {
       if ext != "go" {
         return;
