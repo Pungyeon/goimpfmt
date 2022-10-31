@@ -91,9 +91,9 @@ struct Entry<'a> {
 }
 
 enum PackageType {
-  EXTERNAL,
-  LOCAL,
-  OTHER,
+  External,
+  Local,
+  Other,
 }
 
 struct Matcher {
@@ -103,20 +103,30 @@ struct Matcher {
 
 impl Matcher{
   fn new(local: &str) -> Self {
+    let prefixes = local.split(",");
+    let mut s : String = "(".to_string();
+    for (i, prefix) in prefixes.enumerate() {
+      if i > 0 {
+        s.push_str("|");
+      }
+      s.push_str(prefix);
+    }
+    s.push_str(")");
+
     Matcher{
       external: Regex::new(r".+\..+/").unwrap(),
-      local: Regex::new(local).unwrap(),
+      local: Regex::new(&s).unwrap(),
     }
   }
 
   fn package(&self, package: &str) -> PackageType {
     if self.external.is_match(package) {
       if self.local.is_match(package) {
-        return PackageType::LOCAL;
+        return PackageType::Local;
       }
-      return PackageType::EXTERNAL
+      return PackageType::External
     }
-    PackageType::OTHER
+    PackageType::Other
   }
 }
 
@@ -177,10 +187,7 @@ impl<'a> Formatter<'a> {
   }
 
   fn ignore(&self, path: &str) -> bool {
-    match self.ignored.get(path) {
-      Some(_) => true,
-      None => false,
-    }
+    self.ignored.get(path).is_some()
   }
 
 fn format_file(&mut self, path: std::path::PathBuf) {
@@ -188,7 +195,7 @@ fn format_file(&mut self, path: std::path::PathBuf) {
       if ext != "go" {
         return;
       }
-      return self.format_go_file(path);
+      self.format_go_file(path)
     }
   }
 
@@ -384,7 +391,7 @@ impl Imports {
     if self.comment == None {
       return self.comment = Some(line.to_string());
     } 
-    self.comment = Some(format!("{}\n{}", self.comment.clone().unwrap(), line.to_string()));
+    self.comment = Some(format!("{}\n{}", self.comment.clone().unwrap(), line));
   }
 
   fn parse_import(&mut self, line: &str, matcher: &Matcher) {
@@ -395,9 +402,9 @@ impl Imports {
     }
 
     match matcher.package(line) {
-      PackageType::OTHER => self.handle_other(line, import),
-      PackageType::LOCAL => self.local.push(import),
-      PackageType::EXTERNAL => self.external.push(import),
+      PackageType::Other => self.handle_other(line, import),
+      PackageType::Local => self.local.push(import),
+      PackageType::External => self.external.push(import),
     }
   }
   fn handle_other(&mut self, line: &str, import: Import) {
@@ -629,6 +636,37 @@ fn test_one_liner_import() {
   let mut imports = Imports::new(&lines[..], &Matcher::new("github.com/Vivino/go-api"));
   assert_eq!(imports.length(), 1);
   assert_eq!(imports.output(), input); // ensure there is no change
+}
+
+#[test]
+fn test_import_file_multi_projects() {
+  let expected = "// * “other“ This is a comment
+package main
+
+import (
+\t\"fmt\"
+\t\"net/http\"
+
+\t\"github.com/Vivi/go-api-services/d\"
+\t\"github.com/Vivino/go-api/services/aerospike\"
+\tkafka \"github.com/Vivino/go-api/services/kafka\"
+
+\t\"github.com/Pungyeon/required\"
+  \"github.com/mamamoo/hip\"
+)
+
+func main() {
+    fmt.Println(\"something\")
+}
+
+";
+
+  let file = GoFile::new("./test_files/multi.go.file", &Matcher::new("github.com/Vivino/go-api,github.com/Vivi"));
+
+  let go_file = file.unwrap();
+  let output = &go_file.output();
+  println!("{}", &output);
+  assert_eq!(output, expected);
 }
 
 
